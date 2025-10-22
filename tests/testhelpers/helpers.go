@@ -1,6 +1,8 @@
 package testhelpers
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -41,53 +43,67 @@ func SeedTestItem(t *testing.T, db *inventory.Database, itemID, name string, qua
 	return item
 }
 
-// StartTestServer starts an HTTP server for testing and returns it.
-func StartTestServer(addr string, handler http.Handler) *http.Server {
+// StartTestServer starts an HTTP server for testing on a dynamic port.
+// Returns the server and the actual address it's listening on (e.g., "localhost:54321").
+func StartTestServer(handler http.Handler) (*http.Server, string) {
+	// Listen on a random available port (port 0)
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create listener: %v", err))
+	}
+
 	server := &http.Server{
-		Addr:    addr,
 		Handler: handler,
 	}
 
 	go func() {
-		server.ListenAndServe()
+		server.Serve(listener)
 	}()
 
 	// Give server time to start
 	time.Sleep(50 * time.Millisecond)
 
-	return server
+	return server, listener.Addr().String()
 }
 
-// StartTestServerWithDelay starts an HTTP server with artificial delay middleware.
-func StartTestServerWithDelay(addr string, handler http.Handler, delay time.Duration) *http.Server {
+// StartTestServerWithDelay starts an HTTP server with artificial delay middleware on a dynamic port.
+// Returns the server and the actual address it's listening on.
+func StartTestServerWithDelay(handler http.Handler, delay time.Duration) (*http.Server, string) {
 	// Wrap handler with delay middleware
 	delayedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(delay)
 		handler.ServeHTTP(w, r)
 	})
 
+	// Listen on a random available port (port 0)
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create listener: %v", err))
+	}
+
 	server := &http.Server{
-		Addr:    addr,
 		Handler: delayedHandler,
 	}
 
 	go func() {
-		server.ListenAndServe()
+		server.Serve(listener)
 	}()
 
 	// Give server time to start
 	time.Sleep(50 * time.Millisecond)
 
-	return server
+	return server, listener.Addr().String()
 }
 
 // SetupTestServices creates and starts both Service A and Service B for integration tests.
-// Returns the database, cache, servers, and cleanup function.
-func SetupTestServices(t *testing.T, serviceAAddr, serviceBAddr string) (
+// Returns the database, cache, servers, service addresses, and cleanup function.
+func SetupTestServices(t *testing.T) (
 	db *inventory.Database,
 	cache *store.Cache,
 	serverA *http.Server,
 	serverB *http.Server,
+	serviceAAddr string,
+	serviceBAddr string,
 	cleanup func(),
 ) {
 	t.Helper()
@@ -99,7 +115,7 @@ func SetupTestServices(t *testing.T, serviceAAddr, serviceBAddr string) (
 	serviceA := inventory.NewService(db)
 	routerA := mux.NewRouter()
 	serviceA.SetupRoutes(routerA)
-	serverA = StartTestServer(serviceAAddr, routerA)
+	serverA, serviceAAddr = StartTestServer(routerA)
 
 	// Setup Service B
 	cache = store.NewCache()
@@ -108,7 +124,7 @@ func SetupTestServices(t *testing.T, serviceAAddr, serviceBAddr string) (
 
 	routerB := mux.NewRouter()
 	storeSvc.SetupRoutes(routerB)
-	serverB = StartTestServer(serviceBAddr, routerB)
+	serverB, serviceBAddr = StartTestServer(routerB)
 
 	cleanup = func() {
 		serverA.Close()
@@ -116,16 +132,19 @@ func SetupTestServices(t *testing.T, serviceAAddr, serviceBAddr string) (
 		db.Close()
 	}
 
-	return db, cache, serverA, serverB, cleanup
+	return db, cache, serverA, serverB, serviceAAddr, serviceBAddr, cleanup
 }
 
 // SetupTestServicesWithDelay creates test services with artificial delay on Service A.
 // This is useful for testing timeout and retry behavior.
-func SetupTestServicesWithDelay(t *testing.T, serviceAAddr, serviceBAddr string, delay time.Duration) (
+// Returns the database, cache, servers, service addresses, and cleanup function.
+func SetupTestServicesWithDelay(t *testing.T, delay time.Duration) (
 	db *inventory.Database,
 	cache *store.Cache,
 	serverA *http.Server,
 	serverB *http.Server,
+	serviceAAddr string,
+	serviceBAddr string,
 	cleanup func(),
 ) {
 	t.Helper()
@@ -137,7 +156,7 @@ func SetupTestServicesWithDelay(t *testing.T, serviceAAddr, serviceBAddr string,
 	serviceA := inventory.NewService(db)
 	routerA := mux.NewRouter()
 	serviceA.SetupRoutes(routerA)
-	serverA = StartTestServerWithDelay(serviceAAddr, routerA, delay)
+	serverA, serviceAAddr = StartTestServerWithDelay(routerA, delay)
 
 	// Setup Service B
 	cache = store.NewCache()
@@ -146,7 +165,7 @@ func SetupTestServicesWithDelay(t *testing.T, serviceAAddr, serviceBAddr string,
 
 	routerB := mux.NewRouter()
 	storeSvc.SetupRoutes(routerB)
-	serverB = StartTestServer(serviceBAddr, routerB)
+	serverB, serviceBAddr = StartTestServer(routerB)
 
 	cleanup = func() {
 		serverA.Close()
@@ -154,5 +173,5 @@ func SetupTestServicesWithDelay(t *testing.T, serviceAAddr, serviceBAddr string,
 		db.Close()
 	}
 
-	return db, cache, serverA, serverB, cleanup
+	return db, cache, serverA, serverB, serviceAAddr, serviceBAddr, cleanup
 }

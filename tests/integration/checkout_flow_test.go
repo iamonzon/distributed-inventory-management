@@ -3,6 +3,8 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -36,7 +38,7 @@ func TestEndToEndCheckoutFlow(t *testing.T) {
 	serviceA := inventory.NewService(db)
 	routerA := mux.NewRouter()
 	serviceA.SetupRoutes(routerA)
-	serverA := startTestServer(":8080", routerA)
+	serverA, serviceAAddr := startTestServer(routerA)
 	defer serverA.Close()
 
 	// Setup Service B
@@ -45,18 +47,18 @@ func TestEndToEndCheckoutFlow(t *testing.T) {
 	// Initialize cache with the test item (simulate polling behavior)
 	cache.Set("SKU-123", item)
 
-	checkoutSvc := store.NewCheckoutService(cache, "http://localhost:8080")
+	checkoutSvc := store.NewCheckoutService(cache, "http://"+serviceAAddr)
 	storeSvc := store.NewStoreService(cache, checkoutSvc)
 
 	// Start Service B server
 	routerB := mux.NewRouter()
 	storeSvc.SetupRoutes(routerB)
-	serverB := startTestServer(":8081", routerB)
+	serverB, serviceBAddr := startTestServer(routerB)
 	defer serverB.Close()
 
 	// Wait for services to be ready - poll health endpoints
 	for i := 0; i < 50; i++ {
-		resp, err := http.Get("http://localhost:8080/health")
+		resp, err := http.Get("http://" + serviceAAddr + "/health")
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
 			break
@@ -67,7 +69,7 @@ func TestEndToEndCheckoutFlow(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	for i := 0; i < 50; i++ {
-		resp, err := http.Get("http://localhost:8081/health")
+		resp, err := http.Get("http://" + serviceBAddr + "/health")
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
 			break
@@ -95,7 +97,7 @@ func TestEndToEndCheckoutFlow(t *testing.T) {
 			"quantity": 3,
 		}
 
-		resp, err := makeCheckoutRequest("http://localhost:8081", req)
+		resp, err := makeCheckoutRequest("http://"+serviceBAddr, req)
 		require.NoError(t, err)
 
 		t.Logf("Response: %+v", resp)
@@ -116,7 +118,7 @@ func TestEndToEndCheckoutFlow(t *testing.T) {
 			"quantity": 10, // More than available (7)
 		}
 
-		resp, err := makeCheckoutRequest("http://localhost:8081", req)
+		resp, err := makeCheckoutRequest("http://"+serviceBAddr, req)
 		require.NoError(t, err)
 
 		assert.False(t, resp["success"].(bool))
@@ -130,7 +132,7 @@ func TestEndToEndCheckoutFlow(t *testing.T) {
 			"quantity": 1,
 		}
 
-		resp, err := makeCheckoutRequest("http://localhost:8081", req)
+		resp, err := makeCheckoutRequest("http://"+serviceBAddr, req)
 		require.NoError(t, err)
 
 		assert.False(t, resp["success"].(bool))
@@ -158,7 +160,7 @@ func TestVersionConflictResolution(t *testing.T) {
 	serviceA := inventory.NewService(db)
 	routerA := mux.NewRouter()
 	serviceA.SetupRoutes(routerA)
-	serverA := startTestServer(":8080", routerA)
+	serverA, serviceAAddr := startTestServer(routerA)
 	defer serverA.Close()
 
 	// Setup Service B with stale cache
@@ -172,18 +174,18 @@ func TestVersionConflictResolution(t *testing.T) {
 	}
 	cache.Set("SKU-123", staleItem)
 
-	checkoutSvc := store.NewCheckoutService(cache, "http://localhost:8080")
+	checkoutSvc := store.NewCheckoutService(cache, "http://"+serviceAAddr)
 	storeSvc := store.NewStoreService(cache, checkoutSvc)
 
 	// Start Service B server
 	routerB := mux.NewRouter()
 	storeSvc.SetupRoutes(routerB)
-	serverB := startTestServer(":8081", routerB)
+	serverB, serviceBAddr := startTestServer(routerB)
 	defer serverB.Close()
 
 	// Wait for services to be ready - poll health endpoints
 	for i := 0; i < 50; i++ {
-		resp, err := http.Get("http://localhost:8080/health")
+		resp, err := http.Get("http://" + serviceAAddr + "/health")
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
 			break
@@ -194,7 +196,7 @@ func TestVersionConflictResolution(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	for i := 0; i < 50; i++ {
-		resp, err := http.Get("http://localhost:8081/health")
+		resp, err := http.Get("http://" + serviceBAddr + "/health")
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
 			break
@@ -211,7 +213,7 @@ func TestVersionConflictResolution(t *testing.T) {
 		"quantity": 2,
 	}
 
-	resp, err := makeCheckoutRequest("http://localhost:8081", req)
+	resp, err := makeCheckoutRequest("http://"+serviceBAddr, req)
 	require.NoError(t, err)
 
 	assert.True(t, resp["success"].(bool))
@@ -243,17 +245,25 @@ func makeCheckoutRequest(serviceURL string, req map[string]interface{}) (map[str
 	return result, nil
 }
 
-// startTestServer starts an HTTP server for testing with the provided handler.
-// The handler should be a properly configured *mux.Router with all routes set up.
-func startTestServer(addr string, handler http.Handler) *http.Server {
+// startTestServer starts an HTTP server for testing with the provided handler on a dynamic port.
+// Returns the server and the actual address it's listening on.
+func startTestServer(handler http.Handler) (*http.Server, string) {
+	// Listen on a random available port (port 0)
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create listener: %v", err))
+	}
+
 	server := &http.Server{
-		Addr:    addr,
 		Handler: handler,
 	}
 
 	go func() {
-		_ = server.ListenAndServe() // Error expected when server is closed
+		_ = server.Serve(listener) // Error expected when server is closed
 	}()
 
-	return server
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	return server, listener.Addr().String()
 }
