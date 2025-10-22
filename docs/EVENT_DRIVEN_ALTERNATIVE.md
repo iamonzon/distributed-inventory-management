@@ -153,11 +153,11 @@ Every inventory record maintains a monotonically increasing version number:
 
 ```sql
 -- Single atomic SQL statement (works identically in SQLite and PostgreSQL)
-UPDATE inventory 
-SET quantity = quantity - 1, 
-    version = version + 1 
-WHERE item_id = ? 
-  AND version = ? 
+UPDATE inventory
+SET quantity = quantity - ?,
+    version = version + 1
+WHERE item_id = ?
+  AND version = ?
   AND quantity >= ?
 ```
 
