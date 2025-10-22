@@ -36,14 +36,8 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-
-	// Set busy timeout to handle concurrent access
-	if _, err := db.Exec("PRAGMA busy_timeout=30000"); err != nil {
-		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
+	if err := configureSQLitePragmas(db); err != nil {
+		return nil, err
 	}
 
 	database := &Database{
@@ -57,6 +51,18 @@ func NewDatabase(dbPath string) (*Database, error) {
 	}
 
 	return database, nil
+}
+
+func configureSQLitePragmas(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+
+	if _, err := db.Exec("PRAGMA busy_timeout=30000"); err != nil {
+		return fmt.Errorf("failed to set busy timeout: %w", err)
+	}
+
+	return nil
 }
 
 // initSchema creates the inventory table if it doesn't exist

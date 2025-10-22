@@ -16,61 +16,97 @@ import (
 )
 
 func main() {
-	// Initialize structured logging
+	initializeLogger()
+	config := parseCommandLineFlags()
+
+	cache, storeSvc := initializeStoreServices(config.serviceA)
+	poller := startBackgroundPoller(cache, config.serviceA, config.interval)
+	defer poller.Stop()
+
+	router := setupStoreRoutes(storeSvc)
+	server := createHTTPServer(":"+config.port, router)
+
+	startServerAsyncWithConfig(server, config)
+	waitForShutdownSignal()
+
+	shutdownGracefully(server, "service-b")
+}
+
+type serviceConfig struct {
+	port     string
+	serviceA string
+	interval time.Duration
+}
+
+func initializeLogger() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+}
 
-	// Parse command line flags
-	var (
-		port     = flag.String("port", "8081", "Port to listen on")
-		serviceA = flag.String("service-a", "http://localhost:8080", "Service A URL")
-		interval = flag.Duration("interval", 30*time.Second, "Polling interval")
-	)
+func parseCommandLineFlags() serviceConfig {
+	port := flag.String("port", "8081", "Port to listen on")
+	serviceA := flag.String("service-a", "http://localhost:8080", "Service A URL")
+	interval := flag.Duration("interval", 30*time.Second, "Polling interval")
 	flag.Parse()
 
-	// Initialize cache and services
+	return serviceConfig{
+		port:     *port,
+		serviceA: *serviceA,
+		interval: *interval,
+	}
+}
+
+func initializeStoreServices(serviceAURL string) (*store.Cache, *store.StoreService) {
 	cache := store.NewCache()
-	checkoutSvc := store.NewCheckoutService(cache, *serviceA)
+	checkoutSvc := store.NewCheckoutService(cache, serviceAURL)
 	storeSvc := store.NewStoreService(cache, checkoutSvc)
+	return cache, storeSvc
+}
 
-	// Create and start poller
-	poller := store.NewPoller(cache, *serviceA, *interval)
+func startBackgroundPoller(cache *store.Cache, serviceAURL string, interval time.Duration) *store.Poller {
+	poller := store.NewPoller(cache, serviceAURL, interval)
 	go poller.StartPolling()
-	defer poller.Stop()
+	return poller
+}
 
-	// Setup routes
+func setupStoreRoutes(storeSvc *store.StoreService) *mux.Router {
 	router := mux.NewRouter()
 	storeSvc.SetupRoutes(router)
+	return router
+}
 
-	// Start HTTP server
-	server := &http.Server{
-		Addr:    ":" + *port,
-		Handler: router,
+func createHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:    addr,
+		Handler: handler,
 	}
+}
 
-	// Start server in a goroutine
+func startServerAsyncWithConfig(server *http.Server, config serviceConfig) {
 	go func() {
 		slog.Info("service starting",
 			"service", "store-service-b",
-			"port", *port,
-			"service_a", *serviceA,
-			"poll_interval", *interval)
+			"port", config.port,
+			"service_a", config.serviceA,
+			"poll_interval", config.interval)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server failed", "error", err)
 			os.Exit(1)
 		}
 	}()
+}
 
-	// Wait for interrupt signal to gracefully shutdown
+func waitForShutdownSignal() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+}
 
-	slog.Info("shutting down service", "service", "service-b")
+func shutdownGracefully(server *http.Server, serviceName string) {
+	slog.Info("shutting down service", "service", serviceName)
 
-	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -79,5 +115,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("service stopped", "service", "service-b")
+	slog.Info("service stopped", "service", serviceName)
 }

@@ -36,11 +36,7 @@ func (s *Service) GetItemHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(item); err != nil {
-		// Log error but response is already sent
-		fmt.Fprintf(w, `{"error":"encoding failed"}`)
-	}
+	respondWithJSON(w, item)
 }
 
 // GetAllItemsHandler handles GET /api/v1/inventory/all
@@ -52,11 +48,7 @@ func (s *Service) GetAllItemsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	snapshot := models.InventorySnapshot{Items: items}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(snapshot); err != nil {
-		// Log error but response is already sent
-		fmt.Fprintf(w, `{"error":"encoding failed"}`)
-	}
+	respondWithJSON(w, snapshot)
 }
 
 // CheckoutHandler handles POST /api/v1/checkout
@@ -67,55 +59,18 @@ func (s *Service) CheckoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate request
-	if req.ItemID == "" {
-		http.Error(w, "item_id is required", http.StatusBadRequest)
-		return
-	}
-	if req.Quantity <= 0 {
-		http.Error(w, "quantity must be positive", http.StatusBadRequest)
-		return
-	}
-	if req.ExpectedVersion < 0 {
-		http.Error(w, "expected_version must be non-negative", http.StatusBadRequest)
+	if !validateCheckoutRequest(req, w) {
 		return
 	}
 
-	// Perform CAS operation
 	success, current, err := s.db.CheckoutWithCAS(req.ItemID, req.Quantity, req.ExpectedVersion)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Checkout error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Build response
-	resp := models.CheckoutResponse{
-		Success: success,
-	}
-
-	if !success {
-		// Determine failure reason
-		if current.Quantity < req.Quantity {
-			resp.InsufficientStock = true
-			resp.Message = "Insufficient stock available"
-		} else {
-			resp.VersionConflict = true
-			resp.Message = "Version conflict - item was modified by another operation"
-		}
-		resp.CurrentVersion = current.Version
-		resp.CurrentQuantity = current.Quantity
-	} else {
-		resp.Message = "Checkout successful"
-		// Return updated version and quantity after successful checkout
-		resp.CurrentVersion = current.Version
-		resp.CurrentQuantity = current.Quantity
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		// Log error but response is already sent
-		fmt.Fprintf(w, `{"error":"encoding failed"}`)
-	}
+	resp := buildCheckoutResponse(success, current, req.Quantity)
+	respondWithJSON(w, resp)
 }
 
 // CreateOrUpdateItemHandler handles POST /api/v1/admin/inventory (for testing/demo)
@@ -127,27 +82,12 @@ func (s *Service) CreateOrUpdateItemHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Validate request
-	if item.ItemID == "" {
-		http.Error(w, "item_id is required", http.StatusBadRequest)
+	if !validateAndNormalizeInventoryItem(&item, w) {
 		return
-	}
-	if item.Name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
-		return
-	}
-	if item.Quantity < 0 {
-		http.Error(w, "quantity must be non-negative", http.StatusBadRequest)
-		return
-	}
-	if item.Version <= 0 {
-		item.Version = 1 // Default to version 1 if not provided
 	}
 
 	if err := s.db.SetItem(item); err != nil {
-		slog.Error("failed to set item in database",
-			"item_id", item.ItemID,
-			"error", err)
+		slog.Error("failed to set item in database", "item_id", item.ItemID, "error", err)
 		http.Error(w, "Failed to set item", http.StatusInternalServerError)
 		return
 	}
@@ -157,28 +97,93 @@ func (s *Service) CreateOrUpdateItemHandler(w http.ResponseWriter, r *http.Reque
 		"quantity", item.Quantity,
 		"version", item.Version)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+	respondWithJSONStatus(w, http.StatusCreated, map[string]interface{}{
 		"success": true,
 		"message": "Item created/updated successfully",
 		"item":    item,
-	}); err != nil {
-		slog.Error("failed to encode response", "error", err)
-	}
+	})
 }
 
 // HealthHandler handles GET /health
 func (s *Service) HealthHandler(w http.ResponseWriter, r *http.Request) {
-	// Simple health check - could be enhanced with database connectivity check
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{
+	respondWithJSON(w, map[string]string{
 		"status":  "healthy",
 		"service": "inventory-service-a",
-	}); err != nil {
-		// Log error but response is already sent
+	})
+}
+
+// Helper functions
+
+func respondWithJSON(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
 		fmt.Fprintf(w, `{"error":"encoding failed"}`)
 	}
+}
+
+func respondWithJSONStatus(w http.ResponseWriter, statusCode int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("failed to encode response", "error", err)
+	}
+}
+
+func validateCheckoutRequest(req models.CheckoutRequest, w http.ResponseWriter) bool {
+	if req.ItemID == "" {
+		http.Error(w, "item_id is required", http.StatusBadRequest)
+		return false
+	}
+	if req.Quantity <= 0 {
+		http.Error(w, "quantity must be positive", http.StatusBadRequest)
+		return false
+	}
+	if req.ExpectedVersion < 0 {
+		http.Error(w, "expected_version must be non-negative", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func validateAndNormalizeInventoryItem(item *models.InventoryItem, w http.ResponseWriter) bool {
+	if item.ItemID == "" {
+		http.Error(w, "item_id is required", http.StatusBadRequest)
+		return false
+	}
+	if item.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return false
+	}
+	if item.Quantity < 0 {
+		http.Error(w, "quantity must be non-negative", http.StatusBadRequest)
+		return false
+	}
+	if item.Version <= 0 {
+		item.Version = 1
+	}
+	return true
+}
+
+func buildCheckoutResponse(success bool, current models.InventoryItem, requestedQty int) models.CheckoutResponse {
+	resp := models.CheckoutResponse{
+		Success:         success,
+		CurrentVersion:  current.Version,
+		CurrentQuantity: current.Quantity,
+	}
+
+	if !success {
+		if current.Quantity < requestedQty {
+			resp.InsufficientStock = true
+			resp.Message = "Insufficient stock available"
+		} else {
+			resp.VersionConflict = true
+			resp.Message = "Version conflict - item was modified by another operation"
+		}
+	} else {
+		resp.Message = "Checkout successful"
+	}
+
+	return resp
 }
 
 // SetupRoutes configures all routes for the inventory service

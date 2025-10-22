@@ -46,8 +46,7 @@ func (p *Poller) StartPolling() {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 
-	// Perform initial fetch
-	p.fetchAndUpdate()
+	p.performInitialSync()
 
 	for {
 		select {
@@ -58,6 +57,10 @@ func (p *Poller) StartPolling() {
 			return
 		}
 	}
+}
+
+func (p *Poller) performInitialSync() {
+	p.fetchAndUpdate()
 }
 
 // Stop stops the polling process

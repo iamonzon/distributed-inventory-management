@@ -16,53 +16,70 @@ import (
 )
 
 func main() {
-	// Initialize structured logging
+	initializeLogger()
+	db := initializeDatabase()
+	defer db.Close()
+
+	seedTestData(db)
+
+	router := setupServiceAndRoutes(db)
+	server := createHTTPServer(":8080", router)
+
+	startServerAsync(server, "inventory-service-a", "8080")
+	waitForShutdownSignal()
+
+	shutdownGracefully(server, "service-a")
+}
+
+func initializeLogger() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+}
 
-	// Initialize database
-	db, err := inventory.NewDatabase(":memory:") // Use in-memory SQLite for prototype
+func initializeDatabase() *inventory.Database {
+	db, err := inventory.NewDatabase(":memory:")
 	if err != nil {
 		slog.Error("failed to initialize database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	return db
+}
 
-	// Seed some test data
-	seedTestData(db)
-
-	// Create service and setup routes
+func setupServiceAndRoutes(db *inventory.Database) *mux.Router {
 	service := inventory.NewService(db)
 	router := mux.NewRouter()
 	service.SetupRoutes(router)
+	return router
+}
 
-	// Start HTTP server
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+func createHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:    addr,
+		Handler: handler,
 	}
+}
 
-	// Start server in a goroutine
+func startServerAsync(server *http.Server, serviceName, port string) {
 	go func() {
-		slog.Info("service starting",
-			"service", "inventory-service-a",
-			"port", "8080")
+		slog.Info("service starting", "service", serviceName, "port", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server failed", "error", err)
 			os.Exit(1)
 		}
 	}()
+}
 
-	// Wait for interrupt signal to gracefully shutdown
+func waitForShutdownSignal() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+}
 
-	slog.Info("shutting down service", "service", "service-a")
+func shutdownGracefully(server *http.Server, serviceName string) {
+	slog.Info("shutting down service", "service", serviceName)
 
-	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -71,7 +88,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("service stopped", "service", "service-a")
+	slog.Info("service stopped", "service", serviceName)
 }
 
 // seedTestData populates the database with sample inventory items
