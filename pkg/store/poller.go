@@ -75,10 +75,17 @@ func (p *Poller) Stop() {
 
 // fetchAndUpdate retrieves inventory from Service A and updates the cache
 func (p *Poller) fetchAndUpdate() {
+	// METRIC: cache_refresh_attempts_total (counter, labels: result=[success|failure])
+	// METRIC: cache_refresh_duration_seconds (histogram)
+	// Production: Track polling reliability and latency
+
 	start := time.Now()
 
 	items, err := p.fetchAllInventory()
 	if err != nil {
+		// METRIC: cache_refresh_failures_total (counter)
+		// METRIC: polling_consecutive_failures (gauge)
+		// Production: Alert if consecutive failures > 3
 		p.consecutiveFailures++
 		backoff := p.calculateBackoffWithJitter()
 
@@ -108,6 +115,8 @@ func (p *Poller) fetchAndUpdate() {
 	p.cache.SetAll(items)
 
 	duration := time.Since(start)
+	// METRIC: cache_refresh_success_total (counter)
+	// METRIC: cache_staleness_seconds (gauge) - time since last successful refresh
 	slog.Debug("cache refreshed",
 		"duration_ms", duration.Milliseconds(),
 		"item_count", len(items))

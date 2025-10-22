@@ -163,6 +163,10 @@ func (d *Database) CheckoutWithCAS(
 	quantity int,
 	expectedVersion int,
 ) (success bool, current models.InventoryItem, err error) {
+	// METRIC: cas_operations_total (counter, labels: result=[success|conflict|error])
+	// METRIC: cas_operation_duration_seconds (histogram)
+	// Production: Track CAS latency distribution and success rates
+
 	if quantity <= 0 {
 		return false, models.InventoryItem{}, models.ErrInvalidQuantity
 	}
@@ -172,6 +176,7 @@ func (d *Database) CheckoutWithCAS(
 
 	tx, err := d.db.Begin()
 	if err != nil {
+		// METRIC: database_errors_total (counter, labels: operation=begin_transaction)
 		return false, models.InventoryItem{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -193,6 +198,9 @@ func (d *Database) CheckoutWithCAS(
 	}
 
 	if rowsAffected == 0 {
+		// METRIC: cas_conflicts_total (counter, labels: item_id)
+		// Production: Track version conflict rate to detect hot items
+
 		// CAS failed - get current state for client
 		current, err := d.getItemInTx(tx, itemID)
 		if err != nil {

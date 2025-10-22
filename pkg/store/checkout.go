@@ -32,20 +32,26 @@ func NewCheckoutService(cache *Cache, serviceAURL string) *CheckoutService {
 
 // CheckoutWithRetry performs a checkout with exponential backoff retry logic
 func (cs *CheckoutService) CheckoutWithRetry(itemID string, qty int) error {
+	// METRIC: checkout_attempts_total (counter, labels: result=[success|failure|not_found])
+	// METRIC: checkout_duration_seconds (histogram, labels: result)
+	// Production: Track end-to-end checkout latency including retries
+
 	// Get cached item or fail fast
 	cached, exists := cs.cache.Get(itemID)
 	if !exists {
+		// METRIC: checkout_cache_misses_total (counter)
 		return models.ErrItemNotFound
 	}
 
 	slog.Info("checkout initiated", "item_id", itemID, "quantity", qty, "version", cached.Version)
 
 	const maxRetries = 5
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		start := time.Now()
 
 		resp, err := cs.attemptCheckout(itemID, qty, cached.Version)
 		if err != nil {
+			// METRIC: service_a_request_errors_total (counter, labels: error_type)
 			// Log and fail on last attempt, otherwise continue retrying
 			slog.Warn("checkout attempt failed", "item_id", itemID, "attempt", attempt+1, "error", err)
 			if attempt == maxRetries-1 {
@@ -56,17 +62,22 @@ func (cs *CheckoutService) CheckoutWithRetry(itemID string, qty int) error {
 
 		if resp.Success {
 			duration := time.Since(start)
+			// METRIC: checkout_success_total (counter)
+			// METRIC: checkout_attempt_number (histogram) - track how many retries were needed
 			slog.Info("checkout complete", "item_id", itemID, "duration_ms", duration.Milliseconds())
 			cs.updateCacheAfterSuccess(itemID, &cached, resp)
 			return nil
 		}
 
 		if resp.VersionConflict {
+			// METRIC: version_conflicts_total (counter, labels: item_id)
+			// Production: Track conflict rate to identify hot items
 			cs.handleVersionConflict(itemID, attempt, &cached, resp)
 			continue
 		}
 
 		if resp.InsufficientStock {
+			// METRIC: insufficient_stock_total (counter, labels: item_id)
 			slog.Info("insufficient stock", "item_id", itemID, "requested", qty, "available", resp.CurrentQuantity)
 			return models.ErrOutOfStock
 		}
@@ -76,6 +87,8 @@ func (cs *CheckoutService) CheckoutWithRetry(itemID string, qty int) error {
 		}
 	}
 
+	// METRIC: checkout_max_retries_exceeded_total (counter)
+	// Production: Alert if this metric spikes - indicates system under heavy contention
 	return models.ErrMaxRetriesExceeded
 }
 

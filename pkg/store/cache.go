@@ -30,6 +30,9 @@ func NewCache() *Cache {
 
 // Get retrieves an inventory item by ID
 func (c *Cache) Get(itemID string) (models.InventoryItem, bool) {
+	// METRIC: cache_lookups_total (counter, labels: result=[hit|miss])
+	// Production: Track cache hit rate (should be >95% for browsing traffic)
+
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
@@ -47,6 +50,9 @@ func (c *Cache) Set(itemID string, item models.InventoryItem) {
 
 // SetAll performs a bulk update of all cached items
 func (c *Cache) SetAll(items []models.InventoryItem) {
+	// METRIC: cache_refresh_items_count (gauge)
+	// Production: Track catalog size growth over time
+
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 

@@ -31,7 +31,6 @@ This prototype solves the inventory consistency and latency problems through **o
 ### Technical Details
 4. **[API.md](docs/API.md)** - REST API specification
 5. **[BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md)** ⚡ - Performance measurements
-6. **[PROMPTS.md](docs/PROMPTS.md)** - AI-assisted development notes
 
 ---
 
@@ -59,8 +58,8 @@ This prototype solves the inventory consistency and latency problems through **o
 **Decision:** For unknown scale (likely <100 stores) and prototype constraints, 
 polling solves the stated problem without over-engineering.
 
-**When to migrate:** If stores exceed 100 OR sub-second latency becomes SLA requirement, 
-migrate to event-driven architecture (see [EVENT_DRIVEN_ALTERNATIVE.md](/docs/EVENT_DRIVEN_ALTERNATIVE.md)).
+**When to migrate:** If stores exceed 100 OR sub-second latency becomes SLA requirement,
+migrate to event-driven architecture (see [EVENT_DRIVEN_ALTERNATIVE.md](docs/EVENT_DRIVEN_ALTERNATIVE.md)).
 
 ---
 
@@ -189,6 +188,53 @@ go run cmd/service-b/main.go -interval=1s
 
 ---
 
+## Production Observability
+
+This prototype includes **instrumentation points** (marked with `// METRIC:` comments) showing where operational metrics would be collected in production.
+
+### Key Metrics
+
+**Checkout Operations:**
+- `checkout_attempts_total` - Total checkout attempts (labels: result)
+- `checkout_duration_seconds` - End-to-end checkout latency (histogram)
+- `checkout_success_total` - Successful checkouts
+- `version_conflicts_total` - CAS version conflicts (identify hot items)
+- `checkout_max_retries_exceeded_total` - Exhausted retry attempts (alert trigger)
+
+**CAS Operations (Service A):**
+- `cas_operations_total` - CAS attempts (labels: result=[success|conflict|error])
+- `cas_operation_duration_seconds` - CAS latency distribution (histogram)
+- `cas_conflicts_total` - Version conflicts by item (identify contention)
+
+**Cache Operations (Service B):**
+- `cache_lookups_total` - Cache hits/misses (should be >95% hit rate)
+- `cache_refresh_duration_seconds` - Polling operation latency
+- `cache_refresh_failures_total` - Failed polling attempts
+- `cache_staleness_seconds` - Time since last successful refresh
+
+**Alerting Thresholds (Production):**
+- 🚨 `polling_consecutive_failures > 3` - Service A connectivity issue
+- 🚨 `checkout_max_retries_exceeded_total` spike - System under heavy contention
+- 🚨 `cache_staleness_seconds > 120` - Cache not refreshing
+- 🚨 `version_conflicts_total` spike - Hot item contention
+
+### Implementation Approach
+
+**Prototype:** Comments mark instrumentation points (current state)
+
+**Production:** Export to Prometheus format with Grafana dashboards
+
+See [EVENT_DRIVEN_ALTERNATIVE.md](docs/EVENT_DRIVEN_ALTERNATIVE.md#observability) (lines 440-548) for comprehensive observability design including metrics, logs, and traces.
+
+### Finding Instrumentation Points
+
+Search codebase for `// METRIC:` comments:
+```bash
+grep -r "// METRIC:" pkg/
+```
+
+---
+
 ## Key Design Decisions
 
 1. **CAS Operations** - Atomic version-based updates prevent overselling
@@ -202,11 +248,12 @@ See [IMPLEMENTED_SOLUTION.md](docs/IMPLEMENTED_SOLUTION.md) for details.
 
 ## What This Demonstrates
 
-✅ **Distributed systems understanding** - CAS, concurrency, consistency guarantees  
-✅ **Engineering judgment** - Choosing appropriate complexity for requirements  
-✅ **Architectural thinking** - Event-driven alternative shows scalability knowledge  
-✅ **Pragmatic execution** - Working code over perfect design  
+✅ **Distributed systems understanding** - CAS, concurrency, consistency guarantees
+✅ **Engineering judgment** - Choosing appropriate complexity for requirements
+✅ **Architectural thinking** - Event-driven alternative shows scalability knowledge
+✅ **Pragmatic execution** - Working code over perfect design
 ✅ **Clear communication** - Explicit assumptions and trade-offs
+✅ **Production thinking** - Instrumentation points for operational observability
 
 ---
 
