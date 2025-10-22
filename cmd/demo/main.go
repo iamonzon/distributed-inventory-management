@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,6 +18,28 @@ const (
 	serviceAURL = "http://localhost:8080"
 	serviceBURL = "http://localhost:8081"
 )
+
+var (
+	// pollInterval can be configured via POLL_INTERVAL_SECONDS env var (default 1 second for demo)
+	pollInterval time.Duration
+)
+
+func init() {
+	// Read polling interval from environment variable (default to 1 second for demo)
+	intervalStr := os.Getenv("POLL_INTERVAL_SECONDS")
+	if intervalStr == "" {
+		pollInterval = 1 * time.Second
+	} else {
+		seconds, err := strconv.Atoi(intervalStr)
+		if err != nil {
+			log.Printf("Invalid POLL_INTERVAL_SECONDS value '%s', using default 1 second", intervalStr)
+			pollInterval = 1 * time.Second
+		} else {
+			pollInterval = time.Duration(seconds) * time.Second
+		}
+	}
+	log.Printf("Using polling interval: %v", pollInterval)
+}
 
 func main() {
 	log.Println("=== Distributed Inventory Management Demo ===")
@@ -208,9 +232,10 @@ func demoCacheSynchronization() {
 	// Update an item in Service A
 	updateItemInServiceA("SKU-123", "Updated Wireless Headphones", 75, 2)
 
-	// Wait for cache refresh (polling interval is 30s, but we'll wait a bit)
-	log.Println("Waiting for cache refresh...")
-	time.Sleep(2 * time.Second)
+	// Wait for cache refresh (polling interval + buffer)
+	waitTime := pollInterval + (500 * time.Millisecond)
+	log.Printf("Waiting for cache refresh (%v)...", waitTime)
+	time.Sleep(waitTime)
 
 	// Check if Service B cache has the updated item
 	cachedItem := getItemFromServiceB("SKU-123")
@@ -266,7 +291,8 @@ func setupLastItem() {
 
 	// Wait for Service B cache to pick up the new item via polling
 	log.Println("Waiting for cache to sync new item...")
-	for i := 0; i < 35; i++ {
+	maxWait := int((pollInterval + 2*time.Second) / time.Second)
+	for i := 0; i < maxWait; i++ {
 		cachedItem := getItemFromServiceB("SKU-LAST")
 		if cachedItem != nil {
 			log.Println("✓ SKU-LAST synchronized to Service B cache")
@@ -274,7 +300,7 @@ func setupLastItem() {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	log.Println("⚠ Warning: SKU-LAST not yet in cache, proceeding anyway...")
+	log.Printf("⚠ Warning: SKU-LAST not yet in cache after %d seconds, proceeding anyway...", maxWait)
 }
 
 func updateItemInServiceA(itemID, name string, quantity, version int) {
