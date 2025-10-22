@@ -86,10 +86,11 @@ go mod tidy
 go run cmd/service-a/main.go
 ```
 
-**Terminal 2: Start Service B (Store Service)**
+**Terminal 2: Start Service B (Store Service) with 1-second polling for demo**
 ```bash
-go run cmd/service-b/main.go
+go run cmd/service-b/main.go -interval=1s
 ```
+> **Note**: The `-interval=1s` flag is required for the demo to work. Production uses 30s (default).
 
 **Terminal 3: Run the Demo**
 ```bash
@@ -98,17 +99,38 @@ go run cmd/demo/main.go
 
 ### Expected Demo Output
 ```
+2025/10/21 22:15:25 Using polling interval: 1s
+2025/10/21 22:15:25 === Distributed Inventory Management Demo ===
+
+2025/10/21 22:15:25 Waiting for services to be ready...
+2025/10/21 22:15:25 Services are ready!
+2025/10/21 22:15:25 Service B cache initialized with 5 items!
+
 === Demo 1: Normal Checkout ===
-✓ PASS: Checkout completed in 23ms
+✓ PASS: Checkout completed in 982.084µs
 
 === Demo 2: Concurrent Last Item ===
-Concurrent checkout completed in 47ms
+Concurrent checkout completed in 2.593167ms
 Success count: 1/10
 ✓ PASS: Exactly one checkout succeeded
 ✓ PASS: Final quantity is 0
 
 === Demo 3: Cache Synchronization ===
+Waiting for cache refresh (1.5s)...
 ✓ PASS: Cache synchronized successfully
+```
+
+### Running in Production Mode (30-second polling)
+
+**Terminal 1: Start Service A**
+```bash
+go run cmd/service-a/main.go
+```
+
+**Terminal 2: Start Service B with production polling**
+```bash
+go run cmd/service-b/main.go
+# Uses default 30-second polling interval
 ```
 
 ### Running Tests
@@ -139,6 +161,20 @@ curl http://localhost:8080/health
 # Check Service B health
 curl http://localhost:8081/health
 ```
+
+### Troubleshooting
+
+**Demo fails with "Cache not synchronized" or "Expected 1 success, got 0"?**
+
+This happens when Service B is using the default 30-second polling but the demo expects 1-second polling.
+
+**Solution**: Restart Service B with the `-interval=1s` flag:
+```bash
+# Kill Service B and restart with:
+go run cmd/service-b/main.go -interval=1s
+```
+
+**Why?** The demo creates new items and expects the cache to sync within ~1.5 seconds. If Service B is polling every 30 seconds, the cache won't be updated in time for the demo tests to pass.
 
 ---
 
