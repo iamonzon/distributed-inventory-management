@@ -30,7 +30,8 @@ This prototype solves the inventory consistency and latency problems through **o
 
 ### Technical Details
 4. **[API.md](docs/API.md)** - REST API specification
-5. **[PROMPTS.md](docs/PROMPTS.md)** - AI-assisted development notes
+5. **[BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md)** ⚡ - Performance measurements
+6. **[PROMPTS.md](docs/PROMPTS.md)** - AI-assisted development notes
 
 ---
 
@@ -135,8 +136,11 @@ go run cmd/service-b/main.go
 
 ### Running Tests
 ```bash
-# Run all tests
+# Run all tests (clean output)
 go test ./...
+
+# Run with verbose logging (for debugging)
+env TEST_LOG_LEVEL=info go test ./... -v
 
 # Run specific test suites
 go test ./pkg/inventory/...          # Unit tests for CAS operations
@@ -147,6 +151,13 @@ go test ./tests/chaos/...            # Chaos engineering tests
 
 # Run tests with coverage
 go test -cover ./...
+
+# Run performance benchmarks
+env TEST_LOG_SILENT=true go test ./pkg/... -bench=. -benchmem
+
+# Run specific benchmarks
+env TEST_LOG_SILENT=true go test ./pkg/inventory -bench=BenchmarkCheckoutWithCAS
+env TEST_LOG_SILENT=true go test ./pkg/store -bench=BenchmarkCache
 ```
 
 ### Service URLs
