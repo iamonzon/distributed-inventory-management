@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"distributed-inventory-management/pkg/models"
@@ -36,7 +37,8 @@ func (s *StoreService) GetItemHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(item); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		// Headers already sent - log the error
+		slog.Error("failed to encode JSON response", "error", err, "item_id", itemID)
 	}
 }
 
@@ -47,7 +49,8 @@ func (s *StoreService) GetAllItemsHandler(w http.ResponseWriter, r *http.Request
 	snapshot := models.InventorySnapshot{Items: items}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(snapshot); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		// Headers already sent - log the error
+		slog.Error("failed to encode JSON response", "error", err)
 	}
 }
 

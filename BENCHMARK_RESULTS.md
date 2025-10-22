@@ -1,8 +1,8 @@
 # Benchmark Results
 
-**Date:** 2025-10-22
-**Hardware:** 12-core CPU (likely M-series Mac based on benchmark naming)
-**Go Version:** 1.x
+**Date:** 2025-10-22  
+**Hardware:** 12-core CPU (likely M-series Mac based on benchmark naming)  
+**Go Version:** 1.x  
 **Database:** SQLite (in-memory, WAL mode)
 
 ---

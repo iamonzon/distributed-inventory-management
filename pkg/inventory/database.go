@@ -37,6 +37,7 @@ func NewDatabase(dbPath string) (*Database, error) {
 	}
 
 	if err := configureSQLitePragmas(db); err != nil {
+		db.Close() // Clean up connection on error
 		return nil, err
 	}
 

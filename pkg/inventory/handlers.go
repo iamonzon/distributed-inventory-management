@@ -117,7 +117,8 @@ func (s *Service) HealthHandler(w http.ResponseWriter, r *http.Request) {
 func respondWithJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		fmt.Fprintf(w, `{"error":"encoding failed"}`)
+		// Headers already sent at this point - log the error
+		slog.Error("failed to encode JSON response", "error", err, "data_type", fmt.Sprintf("%T", data))
 	}
 }
 
