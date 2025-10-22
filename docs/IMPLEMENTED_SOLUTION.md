@@ -470,29 +470,30 @@ go run cmd/demo/main.go
 ### Expected Output
 ```
 2025/10/21 22:17:51 Using polling interval: 1s
-2025/10/21 22:17:51 === Distributed Inventory Management Demo ===
-
-2025/10/21 22:17:51 Waiting for services to be ready...
-2025/10/21 22:17:51 Services are ready!
-2025/10/21 22:17:51 Service B cache initialized with 6 items!
-
-=== Demo 1: Normal Checkout ===
-2025/10/21 22:17:51 ✓ PASS: Checkout completed in 710.375µs
-
-=== Demo 2: Concurrent Last Item ===
-2025/10/21 22:17:51 Setting up last item: SKU-LAST
-2025/10/21 22:17:51 Waiting for cache to sync new item...
-2025/10/21 22:17:51 ✓ SKU-LAST synchronized to Service B cache
-2025/10/21 22:17:51 Concurrent checkout completed in 3.975625ms
-2025/10/21 22:17:51 Success count: 1/10
-2025/10/21 22:17:51 ✓ PASS: Exactly one checkout succeeded
-2025/10/21 22:17:51 ✓ PASS: Final quantity is 0
-
-=== Demo 3: Cache Synchronization ===
-2025/10/21 22:17:51 Updating item SKU-123 in Service A
-2025/10/21 22:17:51 Waiting for cache refresh (1.5s)...
-2025/10/21 22:17:52 ✓ PASS: Cache synchronized successfully
-
+2025/10/22 11:12:42 === Distributed Inventory Management Demo ===
+2025/10/22 11:12:42
+2025/10/22 11:12:42 Waiting for services to be ready...
+2025/10/22 11:12:42 Services are ready!
+2025/10/22 11:12:42 Waiting for Service B cache to populate (polling from Service A)...
+2025/10/22 11:12:42 Service B cache initialized with 5 items!
+2025/10/22 11:12:42 === Demo 1: Normal Checkout ===
+2025/10/22 11:12:42 ✓ PASS: Checkout completed in 611.958µs
+2025/10/22 11:12:42
+2025/10/22 11:12:42 === Demo 2: Concurrent Last Item ===
+2025/10/22 11:12:42 Setting up last item: SKU-LAST
+2025/10/22 11:12:42 Waiting for cache to sync new item...
+2025/10/22 11:12:43 ✓ SKU-LAST synchronized to Service B cache
+2025/10/22 11:12:43 Concurrent checkout completed in 7.5475ms
+2025/10/22 11:12:43 Success count: 1/10
+2025/10/22 11:12:43 ✓ PASS: Exactly one checkout succeeded
+2025/10/22 11:12:43 ✓ PASS: Final quantity is 0
+2025/10/22 11:12:43
+2025/10/22 11:12:43 === Demo 3: Cache Synchronization ===
+2025/10/22 11:12:43 Updating item SKU-123 in Service A
+2025/10/22 11:12:43 Waiting for cache refresh (1.5s)...
+2025/10/22 11:12:44 ✓ PASS: Cache synchronized successfully
+2025/10/22 11:12:44
+2025/10/22 11:12:44
 === Demo Complete ===
 ```
 
