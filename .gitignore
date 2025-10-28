@@ -48,6 +48,11 @@ cmd/service-a/service-a
 cmd/service-b/service-b
 cmd/demo/demo
 
+# Root-level compiled binaries (protect against accidental commits)
+/demo
+/service-a
+/service-b
+
 # OS specific files
 .DS_Store
 .AppleDouble
